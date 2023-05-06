@@ -4,7 +4,7 @@
 
 #ifndef NGX_POOL_MEM_POOL_H
 #define NGX_POOL_MEM_POOL_H
-#include <>
+
 using u_char = unsigned char;
 using u_int = unsigned int;
 struct ngx_pool_s;
@@ -19,10 +19,7 @@ const int NGX_MAX_ALLOC_FROM_POOL = (ngx_pagesize - 1); /*小块内存池可分�
 const int NGX_DEFAULT_POOL_SIZE   = (16 * 1024); /*默认的内存池大小*/
 
 const int NGX_POOL_ALIGNMENT      = 16; /*内存池大小按16字节对齐*/
-/*小内存池最小的大小调整到NGX_POOL_ALIGNMENT的临近倍数*/
-const int NGX_MIN_POOL_SIZE =                                                     \
-    ngx_align((sizeof(ngx_pool_s) + 2 * sizeof(ngx_pool_large_s)),            \
-              NGX_POOL_ALIGNMENT);
+
 
 /*大块内存的头部信息*/
 struct ngx_pool_large_s {
@@ -57,10 +54,15 @@ struct ngx_pool_s {
     ngx_pool_cleanup_s   *cleanup; /*清理操作回调函数链表入口*/
 };
 
+/*小内存池最小的大小调整到NGX_POOL_ALIGNMENT的临近倍数*/
+const int NGX_MIN_POOL_SIZE =                                                     \
+    ngx_align((sizeof(ngx_pool_s) + 2 * sizeof(ngx_pool_large_s)),            \
+              NGX_POOL_ALIGNMENT);
+
 class mem_pool {
 public:
     /*创建size大小的内存池，小块内存池不超过1个页面的大小*/
-    bool *ngx_create_pool(size_t size);
+    void *ngx_create_pool(size_t size);
     /*申请内存，考虑内存对其*/
     void *ngx_palloc(size_t size);
     /*申请内存，不考虑内存对其*/
@@ -74,7 +76,7 @@ public:
     /*内存池销毁*/
     void ngx_destroy_pool();
     /*添加清理函数*/
-    ngx_pool_cleanup_s *ngx_pool_cleanup_add(ize_t size);
+    ngx_pool_cleanup_s *ngx_pool_cleanup_add(size_t size);
 private:
     /*小块内存分配*/
     void *ngx_palloc_small(size_t size, u_int align);
