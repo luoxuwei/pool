@@ -48,7 +48,7 @@ public:
     /*线程函数定义为ThreadPool的成员函数，因为线程函数访问的数据都在ThreadPool里*/
     void threadFunc();
 private:
-    std::vector<Thread*> threads_; /*线程列表*/
+    std::vector<std::unique_ptr<Thread>> threads_; /*线程列表*/
     size_t initThreadSize_; /*初始的线程数量*/
     /*存指针才能产生多态，对于一些临时任务，出了提交任务的语句就析构了，所以用share_ptr保证task对象的生命周期*/
     std::queue<std::shared_ptr<Task>> taskQue_; /*任务队列*/

@@ -27,7 +27,15 @@ void ThreadPool::setTaskQueMaxThreshHold(int threshold) {
 }
 
 void ThreadPool::submitTask(std::shared_ptr<Task> t) {
+    std::unique_lock<std::mutex> lock(taskQueMtx_);
 
+    /*while(taskQue_.size() == taskQueMaxThreshHold_) {
+        notFull_.wait(lock);
+    }*/
+    notFull_.wait(lock, [&]()->bool {return taskQue_.size() < taskQueMaxThreshHold_;})
+    taskQue_.emplace(t);
+    taskSize++;
+    notEmpty_.notify_all();
 }
 
 void ThreadPool::start(int s) {
@@ -36,7 +44,7 @@ void ThreadPool::start(int s) {
     /*为了保证线程的公平性，先创建线程对象，再统一开启线程*/
 
     for (int i=0; i<initThreadSize_; i++) {
-        threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc, this)));
+        threads_.emplace_back(std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this)));
     }
 
     for (int i=0; i<initThreadSize_; i++) {
@@ -51,6 +59,8 @@ void ThreadPool::threadFunc() {
 Thread::Thread(ThreadFunc func): func_(func) {
 
 }
+
+Thread::~Thread() {}
 
 void Thread::start() {
     std::thread t(func_);
