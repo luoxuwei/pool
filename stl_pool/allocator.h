@@ -5,10 +5,91 @@
 #ifndef STL_POOL_ALLOCATOR_H
 #define STL_POOL_ALLOCATOR_H
 #include <mutex>
+#include <string.h>
+
+/*封装了malloc和free，可以设置oom释放内存的回调函数*/
+class __malloc_alloc_template {
+
+private:
+
+    static void* _S_oom_malloc(size_t);
+    static void* _S_oom_realloc(void*, size_t);
+
+    static void (* __malloc_alloc_oom_handler)();
+
+public:
+
+    static void* allocate(size_t __n)
+    {
+        void* __result = malloc(__n);
+        if (0 == __result) __result = _S_oom_malloc(__n);
+        return __result;
+    }
+
+    static void deallocate(void* __p, size_t /* __n */)
+    {
+        free(__p);
+    }
+
+    static void* reallocate(void* __p, size_t /* old_sz */, size_t __new_sz)
+    {
+        void* __result = realloc(__p, __new_sz);
+        if (0 == __result) __result = _S_oom_realloc(__p, __new_sz);
+        return __result;
+    }
+
+    /*返回是一个函数类型，所以这里看起来特别奇怪*/
+    static void (* __set_malloc_handler(void (*__f)()))()
+    {
+        void (* __old)() = __malloc_alloc_oom_handler;
+        __malloc_alloc_oom_handler = __f;
+        return(__old);
+    }
+
+};
+
+void (* __malloc_alloc_template::__malloc_alloc_oom_handler)() = nullptr;
+
+void*
+__malloc_alloc_template::_S_oom_malloc(size_t __n)
+{
+    void (* __my_malloc_handler)();
+    void* __result;
+
+    for (;;) {
+        __my_malloc_handler = __malloc_alloc_oom_handler;
+        if (0 == __my_malloc_handler) { throw std::bad_alloc(); }
+        (*__my_malloc_handler)();
+        __result = malloc(__n);
+        if (__result) return(__result);
+    }
+}
+
+void* __malloc_alloc_template::_S_oom_realloc(void* __p, size_t __n)
+{
+    void (* __my_malloc_handler)();
+    void* __result;
+
+    for (;;) {
+        __my_malloc_handler = __malloc_alloc_oom_handler;
+        if (0 == __my_malloc_handler) { throw std::bad_alloc(); }
+        (*__my_malloc_handler)();
+        __result = realloc(__p, __n);
+        if (__result) return(__result);
+    }
+}
+
+typedef __malloc_alloc_template malloc_alloc;
 
 template<typename T>
 class allocator {
 public:
+    using value_type = T;
+    constexpr allocator() noexcept {}
+    constexpr allocator(const allocator &) noexcept = default;
+
+    template<class _Other>
+    constexpr allocator(const allocator<_Other> &) noexcept {}
     /*开辟内存*/
     T *allocate(size_t __n) {
         void* __ret = 0;
@@ -32,7 +113,7 @@ public:
             }
         }
 
-        return __ret;
+        return (T *)__ret;
     };
 
     /*释放内存*/
@@ -119,7 +200,7 @@ private:
                     2 * __total_bytes + _S_round_up(_S_heap_size >> 4);
             // Try to make use of the left-over piece.
             if (__bytes_left > 0) {
-                _Obj* __STL_VOLATILE* __my_free_list =
+                _Obj* volatile* __my_free_list =
                         _S_free_list + _S_freelist_index(__bytes_left);
 
                 ((_Obj*)_S_start_free) -> _M_free_list_link = *__my_free_list;
@@ -203,11 +284,12 @@ template <typename T>
 char* allocator<T>::_S_end_free = nullptr;
 
 template <typename T>
-size_t allocator<T>::_S_heap_size = nullptr;
+size_t allocator<T>::_S_heap_size = 0;
 
 template <typename T>
-_Obj *allocator<T>::_S_free_list[NFREELISTS] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+/*要加typename告诉编译器_Obj是类型*/
+typename allocator<T>::_Obj * volatile allocator<T>::_S_free_list[_NFREELISTS] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                                                 nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, };
 template <typename T>
-allocator<T>::mtx;
+std::mutex allocator<T>::mtx;
 #endif //STL_POOL_ALLOCATOR_H
