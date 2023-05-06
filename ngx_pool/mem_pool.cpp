@@ -25,7 +25,7 @@ void * mem_pool::ngx_create_pool(size_t size) {
     p->current = p;
     p->large = NULL;
     p->cleanup = NULL;
-
+    pool_ = p;
     return p;
 }
 
