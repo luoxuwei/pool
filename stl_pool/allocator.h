@@ -35,8 +35,37 @@ public:
         return __ret;
     };
 
-    void deallocate(void *__p, size_t __n); /*释放内存*/
-    void* reallocate(void* __p, size_t __old_sz, size_t __new_sz); /*扩容&缩容*/
+    /*释放内存*/
+    void deallocate(void *__p, size_t __n) {
+        if (__n > (size_t) _MAX_BYTES)
+            malloc_alloc::deallocate(__p, __n);
+        else {
+            _Obj* volatile*  __my_free_list
+                    = _S_free_list + _S_freelist_index(__n);
+            _Obj* __q = (_Obj*)__p;
+
+            // acquire lock
+            std::lock_guard<std::mutex> guard(mtx);
+            __q -> _M_free_list_link = *__my_free_list;
+            *__my_free_list = __q;
+            // lock is released here
+        }
+    };
+    /*扩容&缩容*/
+    void* reallocate(void* __p, size_t __old_sz, size_t __new_sz) {
+        void* __result;
+        size_t __copy_sz;
+
+        if (__old_sz > (size_t) _MAX_BYTES && __new_sz > (size_t) _MAX_BYTES) {
+            return(realloc(__p, __new_sz));
+        }
+        if (_S_round_up(__old_sz) == _S_round_up(__new_sz)) return(__p);
+        __result = allocate(__new_sz);
+        __copy_sz = __new_sz > __old_sz? __old_sz : __new_sz;
+        memcpy(__result, __p, __copy_sz);
+        deallocate(__p, __old_sz);
+        return(__result);
+    };
     /*构造对象*/
     void construct(T *__p, const T &val) {
         new (__p) T(val);
