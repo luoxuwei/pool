@@ -32,9 +32,13 @@ void ThreadPool::submitTask(std::shared_ptr<Task> t) {
     /*while(taskQue_.size() == taskQueMaxThreshHold_) {
         notFull_.wait(lock);
     }*/
-    notFull_.wait(lock, [&]()->bool {return taskQue_.size() < taskQueMaxThreshHold_;})
+    if (!notFull_.wait_for(lock, std::chrono::seconds(1),
+                           [&]()->bool {return taskQue_.size() < (size_t)taskQueMaxThresHold_;})) {
+        std::cerr<<"task queue is full, submit task fail."<<std::endl;
+        return;
+    }
     taskQue_.emplace(t);
-    taskSize++;
+    taskSize_++;
     notEmpty_.notify_all();
 }
 
@@ -53,7 +57,29 @@ void ThreadPool::start(int s) {
 }
 
 void ThreadPool::threadFunc() {
-    std::cout<<"thread: "<<std::this_thread::get_id()<<std::endl;
+//    std::cout<<"thread: "<<std::this_thread::get_id()<<std::endl;
+    std::shared_ptr<Task> task;
+    for (;;) {
+
+        {
+            std::unique_lock<std::mutex> lock(taskQueMtx_);
+            notEmpty_.wait(lock, [&]()->bool {return taskQue_.size() > 0;});
+
+            task = taskQue_.front();
+            taskQue_.pop();
+            taskSize_--;
+            notFull_.notify_all();
+        }
+
+        if (taskQue_.size() > 0) {
+            notEmpty_.notify_all();
+        }
+
+        if (nullptr != task) {
+            task->run();
+        }
+
+    }
 }
 
 Thread::Thread(ThreadFunc func): func_(func) {
