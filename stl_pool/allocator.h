@@ -91,9 +91,10 @@ public:
     template<class _Other>
     constexpr allocator(const allocator<_Other> &) noexcept {}
     /*开辟内存*/
+    /*参数__n不是要申请的内存大小而是元素个数，要分配的内存大小是*/
     T *allocate(size_t __n) {
         void* __ret = 0;
-
+        __n = __n * sizeof(T);
         if (__n > (size_t) _MAX_BYTES) {
             __ret = malloc_alloc::allocate(__n);
         }
