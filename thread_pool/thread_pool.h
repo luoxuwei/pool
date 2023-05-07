@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <functional>
 #include <unordered_map>
+#include <thread>
 
 class Any {
 public:
@@ -50,16 +51,22 @@ private:
 
 class Semaphore {
 public:
-    Semaphore(int limit = 0):resLimit_(limit){}
-    ~Semaphore() = default;
+    Semaphore(int limit = 0):resLimit_(limit), isExit_(false) {}
+    ~Semaphore() {
+        isExit_ = true;
+    }
 
     void wait() {
+        if (isExit_) return;
+
         std::unique_lock<std::mutex> lock(mtx_);
         cond_.wait(lock, [&]()->bool {return resLimit_>0; });
         resLimit_--;
     }
 
     void post() {
+        if (isExit_) return; 
+        
         std::unique_lock<std::mutex> lock(mtx_);
         resLimit_++;
         cond_.notify_all();
@@ -69,6 +76,7 @@ private:
     int resLimit_;
     std::mutex mtx_;
     std::condition_variable cond_;
+    std::atomic_bool isExit_;
 };
 
 class Task;
@@ -123,7 +131,7 @@ public:
     ThreadPool(const ThreadPool &other) = delete;
     ThreadPool &operator=(const ThreadPool &other) = delete;
     void setMode(PoolMode mode);
-    void start(int s = 4);
+    void start(int s = std::thread::hardware_concurrency());
     void setTaskQueMaxThreshHold(int threshold);
     Result submitTask(std::shared_ptr<Task> t);
     /*线程函数定义为ThreadPool的成员函数，因为线程函数访问的数据都在ThreadPool里*/
