@@ -18,17 +18,7 @@
 const int TASK_MAX_THRESHHOLD = INT32_MAX;
 const int THREAD_MAX_THRESHHOLD = 1024;
 const int THREAD_MAX_IDLE_TIME = 60;
-/*任务抽象基类*/
-class Task {
-public:
-    void exec();
-    virtual Any run() = 0;
-    void setResult(Result *res) {
-        result_ = res;
-    }
-private:
-    Result *result_;
-};
+
 
 /*线程池模式*/
 enum class PoolMode {
@@ -42,7 +32,7 @@ public:
     Thread(ThreadFunc func): func_(func), threadId_(generateID_++) {
 
     }
-    ~Thread();
+    ~Thread() = default;
     void start() {
         std::thread t(func_, threadId_);
         t.detach();
@@ -106,13 +96,54 @@ public:
     void setTaskQueMaxThreshHold(int threshold) {
         taskQueMaxThresHold_ = threshold;
     }
-    Result submitTask(std::shared_ptr<Task> t);
+
+    template<typename Func, typename... Args>
+    auto submitTask(Func&& func, Args&&... args) -> std::future<decltype(func(args...))> {
+        using RType = decltype(func(args...));
+        auto task = std::make_shared<std::packaged_task<RType()>>(
+                std::bind(std::forward<Func>(func), std::forward<Args>(args)...));
+        std::future<RType> result = task->get_future();
+
+        std::unique_lock<std::mutex> lock(taskQueMtx_);
+
+        /*while(taskQue_.size() == taskQueMaxThreshHold_) {
+            notFull_.wait(lock);
+        }*/
+        if (!notFull_.wait_for(lock, std::chrono::seconds(1),
+                               [&]()->bool {return taskQue_.size() < (size_t)taskQueMaxThresHold_;})) {
+            std::cerr<<"task queue is full, submit task fail."<<std::endl;
+            auto task = std::make_shared<std::packaged_task<RType()>>(
+                    []()->RType {return RType();}
+            );
+            std::future<RType> res = task->get_future();
+            (*task)();
+            return res;
+        }
+        taskQue_.emplace([task](){
+            (*task)();
+        });
+        taskSize_++;
+        notEmpty_.notify_all();
+
+        if (poolMode_ == PoolMode::MODE_CACHED
+            && taskSize_ > idleThreadSize_
+            && curThreadSize_ < threadSizeThreshHold_) {
+            auto ptr = std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
+            int id = ptr->getId();
+            threads_.emplace(id, std::move(ptr));
+            threads_[id]->start();
+            curThreadSize_++;
+        }
+
+        return result;
+    }
+
     /*线程函数定义为ThreadPool的成员函数，因为线程函数访问的数据都在ThreadPool里*/
     void threadFunc(int id) {
 //    std::cout<<"thread: "<<std::this_thread::get_id()<<std::endl;
         auto lastTime = std::chrono::high_resolution_clock().now();
         for (;;) {
-            std::shared_ptr<Task> task;
+            Task task;
             {
                 std::unique_lock<std::mutex> lock(taskQueMtx_);
                 while (taskQue_.size() == 0) {
@@ -151,7 +182,8 @@ public:
 
             idleThreadSize_--;
             if (nullptr != task) {
-                task->exec();
+//                task->exec();
+                task();
             }
             idleThreadSize_++;
             lastTime = std::chrono::high_resolution_clock().now();
@@ -159,13 +191,15 @@ public:
 
     }
 private:
+    using Task = std::function<void()>;
+
     std::atomic_int curThreadSize_;
     int threadSizeThreshHold_;
     // std::vector<std::unique_ptr<Thread>> threads_; /*线程列表*/
     std::unordered_map<int, std::unique_ptr<Thread>> threads_;
     size_t initThreadSize_; /*初始的线程数量*/
     /*存指针才能产生多态，对于一些临时任务，出了提交任务的语句就析构了，所以用share_ptr保证task对象的生命周期*/
-    std::queue<std::shared_ptr<Task>> taskQue_; /*任务队列*/
+    std::queue<Task> taskQue_; /*任务队列*/
     std::atomic_int taskSize_; /*任务数量*/
     int taskQueMaxThresHold_; /*任务队列上限 */
     std::mutex taskQueMtx_; /*保证任务队列线程安全*/
