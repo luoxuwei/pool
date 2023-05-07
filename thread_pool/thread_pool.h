@@ -11,6 +11,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <unordered_map>
 
 class Any {
 public:
@@ -104,13 +105,15 @@ enum class PoolMode {
 
 class Thread {
 public:
-    using ThreadFunc = std::function<void()>;
+    using ThreadFunc = std::function<void(int)>;
     Thread(ThreadFunc func);
     ~Thread();
     void start();
-
+    int getId();
 private:
     ThreadFunc func_;
+    static int generateID_;
+    int threadId_;
 };
 
 class ThreadPool {
@@ -124,9 +127,12 @@ public:
     void setTaskQueMaxThreshHold(int threshold);
     Result submitTask(std::shared_ptr<Task> t);
     /*线程函数定义为ThreadPool的成员函数，因为线程函数访问的数据都在ThreadPool里*/
-    void threadFunc();
+    void threadFunc(int id);
 private:
-    std::vector<std::unique_ptr<Thread>> threads_; /*线程列表*/
+    std::atomic_int curThreadSize_;
+    int threadSizeThreshHold_;
+    // std::vector<std::unique_ptr<Thread>> threads_; /*线程列表*/
+    std::unordered_map<int, std::unique_ptr<Thread>> threads_;
     size_t initThreadSize_; /*初始的线程数量*/
     /*存指针才能产生多态，对于一些临时任务，出了提交任务的语句就析构了，所以用share_ptr保证task对象的生命周期*/
     std::queue<std::shared_ptr<Task>> taskQue_; /*任务队列*/
@@ -136,6 +142,8 @@ private:
     std::condition_variable notFull_; /*表示队列不满*/
     std::condition_variable notEmpty_; /*表示队列不空*/
     PoolMode poolMode_;
+    std::atomic_bool isRunning_;
+    std::atomic_int idleThreadSize_;
 };
 
 #endif //THREAD_POOL_THREAD_POOL_H
