@@ -22,7 +22,13 @@ ThreadPool::ThreadPool()
 
 }
 
-ThreadPool::~ThreadPool() {}
+ThreadPool::~ThreadPool() {
+    isRunning_ = false;
+    
+    notEmpty_.notify_all();
+    std::unique_lock<std::mutex> lock(taskQueMtx_);
+    exit_.wait(lock, [&]()->bool {return threads_.size() == 0;});
+}
 
 void ThreadPool::setMode(PoolMode mode) {
     if (isRunning_) return;
@@ -83,12 +89,12 @@ void ThreadPool::start(int s) {
 void ThreadPool::threadFunc(int id) {
 //    std::cout<<"thread: "<<std::this_thread::get_id()<<std::endl;
    auto lastTime = std::chrono::high_resolution_clock().now();
-    for (;;) {
+    while (isRunning_) {
         std::shared_ptr<Task> task;
         {
             std::unique_lock<std::mutex> lock(taskQueMtx_);
-            if (poolMode_ == PoolMode::MODE_CACHED) {
-                while (taskQue_.size() == 0) {
+            while (taskQue_.size() == 0) {
+                if (poolMode_ == PoolMode::MODE_CACHED) {
                     if (std::cv_status::timeout ==
                         notEmpty_.wait_for(lock, std::chrono::seconds(1))) {
                         auto now = std::chrono::high_resolution_clock().now();
@@ -100,12 +106,18 @@ void ThreadPool::threadFunc(int id) {
                             return;
                         }
                     }
+                } else {
+                    notEmpty_.wait(lock);
                 }
-            } else {
-                notEmpty_.wait(lock, [&]()->bool {return taskQue_.size() > 0;});
+
+                if (!isRunning_) {
+                    threads_.erase(id);
+                    exit_.notify_all();
+                    return;
+                }
+
             }
-
-
+            
             task = taskQue_.front();
             taskQue_.pop();
             taskSize_--;
@@ -123,6 +135,8 @@ void ThreadPool::threadFunc(int id) {
         idleThreadSize_++;
         lastTime = std::chrono::high_resolution_clock().now();
     }
+    threads_.erase(id);
+    exit_.notify_all();
 }
 
 int Thread::generateID_ = 0;

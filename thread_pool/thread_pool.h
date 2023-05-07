@@ -141,6 +141,7 @@ private:
     std::mutex taskQueMtx_; /*保证任务队列线程安全*/
     std::condition_variable notFull_; /*表示队列不满*/
     std::condition_variable notEmpty_; /*表示队列不空*/
+    std::condition_variable exit_;
     PoolMode poolMode_;
     std::atomic_bool isRunning_;
     std::atomic_int idleThreadSize_;
