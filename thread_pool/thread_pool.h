@@ -12,10 +12,88 @@
 #include <condition_variable>
 #include <functional>
 
+class Any {
+public:
+    Any() = default;
+    ~Any() = default;
+    Any(const Any&) = delete;
+    Any& operator=(const Any&) = delete;
+    Any(Any&& o) = default;
+    Any& operator=(Any&& o) = default;
+    template<typename T>
+    Any(T data): base_(std::make_unique<Derive<T>>(data)) {}
+    template<typename T>
+    T cast_() {
+        Derive<T> * pd = dynamic_cast<Derive<T>*>(base_.get());
+        if (nullptr == pd) {
+            throw "type is unmatch!";
+        }
+        return pd->data_;
+    }
+private:
+    class Base {
+    public:
+    virtual ~Base() = default;
+    };
+
+    template<typename T>
+    class Derive: public Base {
+    public:
+        Derive(T data): data_(data) {}
+        T data_;
+    };
+
+private:
+    std::unique_ptr<Base> base_;
+};
+
+class Semaphore {
+public:
+    Semaphore(int limit = 0):resLimit_(limit){}
+    ~Semaphore() = default;
+
+    void wait() {
+        std::unique_lock<std::mutex> lock(mtx_);
+        cond_.wait(lock, [&]()->bool {return resLimit_>0; });
+        resLimit_--;
+    }
+
+    void post() {
+        std::unique_lock<std::mutex> lock(mtx_);
+        resLimit_++;
+        cond_.notify_all();
+    }
+
+private:
+    int resLimit_;
+    std::mutex mtx_;
+    std::condition_variable cond_;
+};
+
+class Task;
+class Result {
+public:
+    Result(std::shared_ptr<Task> st, bool isValid = true);
+    ~Result() = default;
+    Any get();
+    void setVal(Any any);
+private:
+    std::shared_ptr<Task> task_;
+    Any any_;
+    Semaphore sem_;
+    std::atomic_bool isValid_;
+};
+
 /*任务抽象基类*/
 class Task {
 public:
-    virtual void run() = 0;
+    void exec();
+    virtual Any run() = 0;
+    void setResult(Result *res) {
+        result_ = res;
+    }
+private:
+    Result *result_;
 };
 
 /*线程池模式*/
@@ -44,7 +122,7 @@ public:
     void setMode(PoolMode mode);
     void start(int s = 4);
     void setTaskQueMaxThreshHold(int threshold);
-    void submitTask(std::shared_ptr<Task> t);
+    Result submitTask(std::shared_ptr<Task> t);
     /*线程函数定义为ThreadPool的成员函数，因为线程函数访问的数据都在ThreadPool里*/
     void threadFunc();
 private:

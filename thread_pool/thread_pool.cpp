@@ -26,7 +26,7 @@ void ThreadPool::setTaskQueMaxThreshHold(int threshold) {
     taskQueMaxThresHold_ = threshold;
 }
 
-void ThreadPool::submitTask(std::shared_ptr<Task> t) {
+Result ThreadPool::submitTask(std::shared_ptr<Task> t) {
     std::unique_lock<std::mutex> lock(taskQueMtx_);
 
     /*while(taskQue_.size() == taskQueMaxThreshHold_) {
@@ -35,11 +35,12 @@ void ThreadPool::submitTask(std::shared_ptr<Task> t) {
     if (!notFull_.wait_for(lock, std::chrono::seconds(1),
                            [&]()->bool {return taskQue_.size() < (size_t)taskQueMaxThresHold_;})) {
         std::cerr<<"task queue is full, submit task fail."<<std::endl;
-        return;
+        return Result(t, false);
     }
     taskQue_.emplace(t);
     taskSize_++;
     notEmpty_.notify_all();
+    return Result(t);
 }
 
 void ThreadPool::start(int s) {
@@ -76,7 +77,7 @@ void ThreadPool::threadFunc() {
         }
 
         if (nullptr != task) {
-            task->run();
+            task->exec();
         }
 
     }
@@ -91,4 +92,30 @@ Thread::~Thread() {}
 void Thread::start() {
     std::thread t(func_);
     t.detach();
+}
+
+Any Result::get() {
+    if (!isValid_) {
+        return "";
+    }
+    sem_.wait();
+    return std::move(any_);
+}
+
+Result::Result(std::shared_ptr<Task> task, bool isValid)
+        : isValid_(isValid)
+        , task_(task)
+{
+    task_->setResult(this);
+}
+
+void Result::setVal(Any any) {
+    any_ = std::move(any);
+    sem_.post();
+}
+
+void Task::exec() {
+    if (nullptr != result_) {
+        result_->setVal(run());
+    }
 }
